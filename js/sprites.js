@@ -36,58 +36,37 @@ export function createPlayerSprite() {
     // Scale factor from old 48x56
     const s = 4;
 
-    // Cape / scarf flowing behind (drawn first so body covers front)
-    // Layer 1 - darkest
-    ctx.fillStyle = '#B71C1C';
+    // Flowing scarf behind neck (drawn first so body covers front)
+    // Thin wavy scarf strand 1
+    const scarfGrd1 = ctx.createLinearGradient(40, 124, 20, 200);
+    scarfGrd1.addColorStop(0, '#E53935');
+    scarfGrd1.addColorStop(0.5, '#C62828');
+    scarfGrd1.addColorStop(1, '#8E1414');
+    ctx.fillStyle = scarfGrd1;
     ctx.beginPath();
-    ctx.moveTo(48, 128);
-    ctx.bezierCurveTo(30, 148, 16, 168, 8, 212);
-    ctx.lineTo(20, 214);
-    ctx.bezierCurveTo(26, 178, 36, 152, 52, 136);
+    ctx.moveTo(60, 124);
+    ctx.bezierCurveTo(50, 140, 38, 150, 32, 170);
+    ctx.bezierCurveTo(28, 185, 34, 195, 28, 210);
+    ctx.lineTo(36, 212);
+    ctx.bezierCurveTo(40, 198, 36, 186, 40, 172);
+    ctx.bezierCurveTo(44, 156, 56, 144, 66, 128);
     ctx.closePath();
     ctx.fill();
 
-    // Layer 2 - mid
-    const capeGrd2 = ctx.createLinearGradient(12, 128, 12, 214);
-    capeGrd2.addColorStop(0, '#C62828');
-    capeGrd2.addColorStop(1, '#8E1414');
-    ctx.fillStyle = capeGrd2;
+    // Thin wavy scarf strand 2 (slightly offset, narrower)
+    const scarfGrd2 = ctx.createLinearGradient(45, 126, 30, 196);
+    scarfGrd2.addColorStop(0, '#C62828');
+    scarfGrd2.addColorStop(1, '#7B1010');
+    ctx.fillStyle = scarfGrd2;
     ctx.beginPath();
-    ctx.moveTo(56, 124);
-    ctx.bezierCurveTo(24, 152, 12, 176, 8, 216);
-    ctx.lineTo(24, 212);
-    ctx.bezierCurveTo(28, 176, 40, 152, 64, 132);
+    ctx.moveTo(56, 126);
+    ctx.bezierCurveTo(44, 144, 36, 160, 42, 180);
+    ctx.bezierCurveTo(46, 192, 38, 200, 36, 206);
+    ctx.lineTo(42, 208);
+    ctx.bezierCurveTo(46, 200, 52, 192, 48, 180);
+    ctx.bezierCurveTo(44, 164, 50, 148, 62, 130);
     ctx.closePath();
     ctx.fill();
-
-    // Layer 3 - highlight
-    const capeGrd3 = ctx.createLinearGradient(24, 124, 24, 180);
-    capeGrd3.addColorStop(0, '#E53935');
-    capeGrd3.addColorStop(1, '#C62828');
-    ctx.fillStyle = capeGrd3;
-    ctx.beginPath();
-    ctx.moveTo(56, 124);
-    ctx.bezierCurveTo(40, 140, 32, 156, 28, 176);
-    ctx.lineTo(36, 172);
-    ctx.bezierCurveTo(40, 152, 48, 140, 60, 128);
-    ctx.closePath();
-    ctx.fill();
-
-    // Cape shadow
-    ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 4;
-    ctx.shadowOffsetY = 4;
-    ctx.beginPath();
-    ctx.moveTo(48, 128);
-    ctx.bezierCurveTo(30, 148, 16, 168, 8, 212);
-    ctx.lineTo(20, 214);
-    ctx.bezierCurveTo(26, 178, 36, 152, 52, 136);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
 
     // Subtle glow around head
     const glowGrd = ctx.createRadialGradient(96, 72, 24, 96, 72, 72);
