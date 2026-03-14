@@ -27,8 +27,8 @@ export class Game {
     this.container = document.getElementById('game-container');
 
     // ── Renderer ──────────────────────────────────────────────
-    this.renderer = new THREE.WebGLRenderer({ antialias: false });
-    this.renderer.setPixelRatio(1);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(0x87CEEB);
     this.container.prepend(this.renderer.domElement);
 
@@ -1101,8 +1101,8 @@ export class Game {
     ctx.fillStyle = hexColor;
     ctx.fillText(text, cw / 2, ch / 2 + 4);
     const tex = new THREE.CanvasTexture(canvas);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.minFilter = THREE.LinearFilter;
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(cw / 32, ch / 32),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false })
@@ -1273,8 +1273,8 @@ export class Game {
     ctx.fillStyle = grd;
     ctx.fill();
     const t = new THREE.CanvasTexture(c);
-    t.magFilter = THREE.NearestFilter;
-    t.minFilter = THREE.NearestFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearFilter;
     return t;
   }
 

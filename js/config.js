@@ -36,6 +36,15 @@ export const COLORS = {
   shieldBlue:    0x2196F3,
   heartRed:      0xF44336,
   portalGold:    0xFFD700,
+  // Modern gradient variants
+  drupalBlueLight: 0x3A9DD6,
+  drupalBlueDark:  0x034A6B,
+  grassLight:      0x66BB6A,
+  dirtLight:       0xA0522D,
+  stoneLight:      0x9E9E9E,
+  stoneMoss:       0x4CAF50,
+  skyHorizon:      0xE8B86D,
+  fogColor:        0xC8D6E5,
 };
 
 // Platforms: [x, y, width, height, type]
