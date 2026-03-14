@@ -1,0 +1,23 @@
+{
+  "name": "drupal-drop-adventure",
+  "version": "1.0.0",
+  "description": "SNES-style 2D platformer featuring Drupal and decoupled.io",
+  "homepage": "https://game.decoupled.io/",
+  "license": "MIT",
+  "keywords": [
+    "drupal",
+    "platformer",
+    "game",
+    "threejs",
+    "2d",
+    "retro",
+    "decoupled",
+    "headless-cms",
+    "composable-web"
+  ],
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve . -l 3000"
+  },
+  "dependencies": {}
+}

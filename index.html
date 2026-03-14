@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Drupal Drop Adventure - The Composable Web Game | decoupled.io</title>
+  <meta name="description" content="Play Drupal Drop Adventure, a retro 2D platformer where you navigate the Composable Web, defeat The Monolith, and deploy your site. Built by decoupled.io.">
+  <meta name="theme-color" content="#0678BE">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Drupal Drop Adventure">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Drupal Drop Adventure - The Composable Web Game">
+  <meta property="og:description" content="A retro 2D platformer where you navigate the Composable Web, defeat The Monolith, and deploy your site. Built by decoupled.io.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/og-image.png">
+  <meta property="og:url" content="https://game.decoupled.io/">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Drupal Drop Adventure - The Composable Web Game">
+  <meta name="twitter:description" content="A retro 2D platformer where you navigate the Composable Web, defeat The Monolith, and deploy your site. Built by decoupled.io.">
+  <meta name="twitter:image" content="/og-image.png">
+
+  <!-- Canonical -->
+  <link rel="canonical" href="https://game.decoupled.io/">
+
+  <!-- Favicon: inline SVG Drupal drop -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 100'%3E%3Cpath d='M40 5C40 5 75 50 75 65C75 82 59 95 40 95C21 95 5 82 5 65C5 50 40 5 40 5Z' fill='%230678BE'/%3E%3C/svg%3E">
+
+  <!-- Performance hints -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="modulepreload" href="js/main.js">
+
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Drupal Drop Adventure",
+    "description": "A retro 2D platformer where you navigate the Composable Web, defeat The Monolith, and deploy your site.",
+    "genre": "Platformer",
+    "gamePlatform": "Web Browser",
+    "url": "https://game.decoupled.io/",
+    "publisher": {
+      "@type": "Organization",
+      "name": "decoupled.io",
+      "url": "https://decoupled.io/"
+    }
+  }
+  </script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      overflow: hidden;
+      background: #000;
+      font-family: 'Press Start 2P', monospace;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      touch-action: none;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    /* Prevent scrolling, text selection, and context menus on game area */
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+
+    #game-container {
+      position: absolute;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+    }
+
+    canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+    /* ---- Loading screen ---- */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      z-index: 100;
+      transition: opacity 0.4s ease-out;
+    }
+    #loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #loading-screen svg {
+      width: 64px;
+      height: 80px;
+      animation: pulse-drop 1.2s ease-in-out infinite;
+      filter: drop-shadow(0 0 18px rgba(6,120,190,0.5));
+    }
+    #loading-screen p {
+      margin-top: 24px;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px;
+      color: #0678BE;
+      letter-spacing: 2px;
+    }
+    @keyframes pulse-drop {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.12); opacity: 0.7; }
+    }
+
+    /* ---- HUD ---- */
+    #hud {
+      position: absolute; top: 0; left: 0; width: 100%;
+      padding: 12px 20px; display: flex; justify-content: space-between; align-items: center;
+      font-size: 14px; color: #fff; text-shadow: 2px 2px 0 #000;
+      z-index: 10; pointer-events: none;
+    }
+    #health { display: flex; gap: 6px; }
+    .heart { width: 20px; height: 20px; display: inline-block; }
+    .heart::before { content: '\2764'; font-size: 18px; }
+    .heart.full { color: #F44336; }
+    .heart.empty { color: #555; }
+
+    /* ---- Message ---- */
+    #message {
+      position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%);
+      background: rgba(6, 120, 190, 0.92); color: #fff;
+      padding: 14px 24px; border-radius: 6px; font-size: 11px; line-height: 1.8;
+      max-width: 460px; text-align: center; z-index: 10; display: none;
+      border: 3px solid #fff; box-shadow: 0 0 20px rgba(6,120,190,0.5);
+    }
+
+    /* ---- Overlay ---- */
+    #overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.88); z-index: 20; color: #fff; text-align: center;
+      transition: opacity 0.3s ease-out;
+    }
+    #overlay h1 { font-size: 26px; color: #0678BE; margin-bottom: 16px; line-height: 1.4; }
+    #overlay .subtitle { font-size: 11px; color: #87CEEB; margin-bottom: 8px; }
+    #overlay p { font-size: 10px; margin: 6px 0; line-height: 1.8; color: #ccc; }
+    #overlay .start-hint {
+      margin-top: 28px; color: #FFD700; font-size: 12px;
+      animation: blink 1s step-end infinite;
+    }
+    #overlay .controls { margin-top: 16px; color: #888; font-size: 9px; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    #drop-logo {
+      width: 80px; height: 100px; margin-bottom: 20px;
+      filter: drop-shadow(0 0 15px rgba(6,120,190,0.6));
+    }
+
+    /* ---- Footer credit ---- */
+    #powered-by {
+      position: fixed;
+      bottom: 6px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 5;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 7px;
+      color: rgba(255,255,255,0.25);
+      text-decoration: none;
+      letter-spacing: 1px;
+      pointer-events: auto;
+      transition: color 0.2s ease;
+    }
+    #powered-by:hover { color: rgba(255,255,255,0.5); }
+
+    /* ── Pause overlay ────────────────────────────────────── */
+    #pause-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.75); z-index: 25; color: #fff; text-align: center;
+    }
+    #pause-overlay h2 {
+      font-size: 32px; color: #0678BE; text-shadow: 3px 3px 0 #000;
+      animation: blink 1.2s step-end infinite;
+    }
+    #pause-overlay p {
+      margin-top: 20px; font-size: 10px; color: #87CEEB;
+    }
+
+    /* ── Fade overlay (for state transitions) ─────────────── */
+    #fade-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #000; z-index: 15; pointer-events: none; display: none; opacity: 0;
+    }
+
+    /* ── Combo display ────────────────────────────────────── */
+    #combo-display {
+      position: absolute; top: 25%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 22px; color: #FFD700; text-shadow: 3px 3px 0 #000, -1px -1px 0 #B8860B;
+      z-index: 12; pointer-events: none; display: none;
+      white-space: nowrap;
+    }
+
+    /* ── Touch controls (hidden by default, shown via JS on touch devices) ── */
+    #touch-controls {
+      position: absolute; bottom: 0; left: 0; width: 100%; height: auto;
+      display: none; /* shown by JS on touch devices */
+      justify-content: space-between; align-items: flex-end;
+      padding: 16px 20px;
+      z-index: 30; pointer-events: none;
+    }
+    #dpad, #action-btns {
+      display: flex; gap: 10px; pointer-events: auto;
+    }
+    #touch-controls button {
+      width: 64px; height: 64px;
+      background: rgba(6, 120, 190, 0.45);
+      border: 3px solid rgba(6, 120, 190, 0.7);
+      border-radius: 16px;
+      color: #fff;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 20px;
+      line-height: 64px;
+      text-align: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+      outline: none;
+      transition: background 0.08s, transform 0.08s;
+    }
+    #touch-controls button.active,
+    #touch-controls button:active {
+      background: rgba(6, 120, 190, 0.8);
+      border-color: #fff;
+      transform: scale(0.92);
+    }
+    /* Slightly larger jump button */
+    #btn-jump {
+      width: 72px; height: 72px;
+      line-height: 72px;
+      border-radius: 50%;
+      font-size: 18px;
+    }
+    #btn-shoot {
+      width: 60px; height: 60px;
+      line-height: 60px;
+      border-radius: 50%;
+      font-size: 16px;
+      align-self: center;
+    }
+
+    /* Responsive sizing for small screens */
+    @media (max-width: 600px) {
+      #touch-controls { padding: 10px 12px; }
+      #touch-controls button { width: 54px; height: 54px; line-height: 54px; font-size: 16px; }
+      #btn-jump { width: 62px; height: 62px; line-height: 62px; }
+      #btn-shoot { width: 52px; height: 52px; line-height: 52px; }
+      #hud { font-size: 10px; padding: 8px 12px; }
+      .heart { width: 16px; height: 16px; }
+      .heart::before { font-size: 14px; }
+      #combo-display { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading screen (CSS-only animation, hidden by game after init) -->
+  <div id="loading-screen">
+    <svg viewBox="0 0 80 100" xmlns="http://www.w3.org/2000/svg">
+      <path d="M40 5C40 5 75 50 75 65C75 82 59 95 40 95C21 95 5 82 5 65C5 50 40 5 40 5Z" fill="#0678BE"/>
+    </svg>
+    <p>Loading...</p>
+  </div>
+
+  <div id="game-container">
+    <div id="hud">
+      <div id="health"></div>
+      <div id="score">SCORE: 0</div>
+    </div>
+    <div id="combo-display"></div>
+    <div id="message"></div>
+    <div id="fade-overlay"></div>
+    <div id="overlay">
+      <svg id="drop-logo" viewBox="0 0 80 100">
+        <path d="M40 5 C40 5, 75 50, 75 65 C75 82, 59 95, 40 95 C21 95, 5 82, 5 65 C5 50, 40 5, 40 5Z" fill="#0678BE" stroke="#fff" stroke-width="2"/>
+        <circle cx="30" cy="60" r="5" fill="#fff"/>
+        <circle cx="50" cy="60" r="5" fill="#fff"/>
+        <circle cx="30" cy="61" r="2.5" fill="#044d7a"/>
+        <circle cx="50" cy="61" r="2.5" fill="#044d7a"/>
+        <path d="M33 72 Q40 78 47 72" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </svg>
+      <h1>DRUPAL DROP<br>ADVENTURE</h1>
+      <p class="subtitle">The AI-Agent-Friendly Headless CMS</p>
+      <p>Navigate the Composable Web!</p>
+      <p>Defeat The Monolith and deploy your site!</p>
+      <p class="start-hint">PRESS ENTER TO START</p>
+      <p class="controls">Arrow Keys / WASD: Move &amp; Jump &nbsp;|&nbsp; X: Shoot &nbsp;|&nbsp; ESC: Pause</p>
+    </div>
+    <div id="pause-overlay">
+      <h2>PAUSED</h2>
+      <p>Press ESC or ENTER to resume</p>
+    </div>
+    <div id="touch-controls">
+      <div id="dpad">
+        <button id="btn-left">&#9664;</button>
+        <button id="btn-right">&#9654;</button>
+      </div>
+      <div id="action-btns">
+        <button id="btn-shoot">B</button>
+        <button id="btn-jump">A</button>
+      </div>
+    </div>
+  </div>
+
+  <a id="powered-by" href="https://decoupled.io/" target="_blank" rel="noopener noreferrer">Powered by decoupled.io</a>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
+  <script type="module">
+    // Hide loading screen once the game module has loaded and executed
+    import('./js/main.js').then(() => {
+      const el = document.getElementById('loading-screen');
+      if (el) {
+        el.classList.add('hidden');
+        el.addEventListener('transitionend', () => el.remove());
+      }
+    });
+  </script>
+</body>
+</html>
