@@ -71,6 +71,16 @@ export class Game {
     // ── Floating text pool ───────────────────────────────────
     this._floatingTexts = [];
 
+    // ── Dust trail particles ──────────────────────────────────
+    this._dustTimer = 0;
+
+    // ── Victory fireworks state ───────────────────────────────
+    this._fireworksActive = false;
+    this._fireworksTimer = 0;
+    this._fireworksBurstCount = 0;
+    this._fireworksCenterX = 0;
+    this._fireworksCenterY = 0;
+
     // ── State ─────────────────────────────────────────────────
     this.state = 'title'; // title | playing | gameOver | victory | paused
     this.player = null;
@@ -173,9 +183,28 @@ export class Game {
     if (this.player?.mesh) this.scene.remove(this.player.mesh);
     this.projectiles = [];
     this.particles = [];
-    this._floatingTexts.forEach(ft => this.scene.remove(ft.mesh));
-    this._floatingTexts = [];
     this.portal = null;
+
+    // Clear floating texts
+    for (const ft of this._floatingTexts) {
+      if (ft.mesh && ft.mesh.parent) this.scene.remove(ft.mesh);
+    }
+    this._floatingTexts = [];
+
+    // Reset VFX state
+    this._shakeIntensity = 0;
+    this._shakeDuration = 0;
+    this._shakeTimer = 0;
+    this._dustTimer = 0;
+    this._fireworksActive = false;
+    this._fireworksTimer = 0;
+    this._fireworksBurstCount = 0;
+
+    // Remove boss health bar if present
+    const oldBar = document.getElementById('boss-health-bar');
+    if (oldBar) oldBar.remove();
+    const oldLabel = document.getElementById('boss-health-label');
+    if (oldLabel) oldLabel.remove();
 
     // ── Player ────────────────────────────────────────────────
     const pm = createPlayerSprite();
@@ -191,12 +220,13 @@ export class Game {
       invincible: false, invincibleTimer: 0,
       shootCooldown: 0,
       mesh: pm,
+      hitFlashTimer: 0,
       // Coyote time & jump buffering
       coyoteTimer: 0,
       jumpBufferTimer: 0,
       // Wall slide
       wallSliding: false,
-      wallDir: 0,  // -1 = wall on left, 1 = wall on right
+      wallDir: 0,
       // Combo system
       comboCount: 0,
       comboTimer: 0,
@@ -225,6 +255,7 @@ export class Game {
         name: s.name, dir: 1, time: Math.random() * 6,
         minX: x - patrol / 2, maxX: x + patrol / 2,
         alive: true, mesh,
+        hitFlashTimer: 0,
       };
     });
 
@@ -265,6 +296,8 @@ export class Game {
       phase: 'patrol', phaseTimer: 3,
       slamY: BOSS_CONFIG.y,
       invulnTimer: 0, mesh: bm,
+      hitFlashTimer: 0,
+      debrisTime: 0,
     };
 
     this.camera.position.set(this.player.x, 4, 5);
@@ -323,6 +356,9 @@ export class Game {
       }
     }
 
+    // Update fireworks even outside playing state
+    if (this._fireworksActive) this._updateFireworks(dt);
+
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -343,14 +379,12 @@ export class Game {
 
   // ── Fade helpers ────────────────────────────────────────────
   _fadeOut(duration) {
-    // Fade overlay from opaque to transparent (entering gameplay)
     const el = this.fadeOverlay;
     if (!el) return;
     el.style.transition = 'none';
     el.style.opacity = '1';
     el.style.pointerEvents = 'none';
     el.style.display = 'block';
-    // Force reflow
     void el.offsetWidth;
     el.style.transition = `opacity ${duration}s ease-out`;
     el.style.opacity = '0';
@@ -358,7 +392,6 @@ export class Game {
   }
 
   _fadeIn(duration, delay = 0) {
-    // Fade overlay from transparent to opaque (leaving gameplay)
     const el = this.fadeOverlay;
     if (!el) return;
     el.style.transition = 'none';
@@ -396,7 +429,6 @@ export class Game {
     const p = this.player;
     const spd = MOVE_SPEED * (p.speedBoost ? 1.5 : 1);
 
-    // ── Horizontal input ────────────────────────────────────
     const pushingLeft  = this.input.left;
     const pushingRight = this.input.right;
 
@@ -404,21 +436,15 @@ export class Game {
     else if (pushingRight)  { p.vx =  spd; p.facing =  1; }
     else                    { p.vx =  0; }
 
-    // ── Coyote time ─────────────────────────────────────────
-    if (p.grounded) {
-      p.coyoteTimer = 0.08;
-    } else {
-      p.coyoteTimer -= dt;
-    }
+    // Coyote time
+    if (p.grounded) { p.coyoteTimer = 0.08; }
+    else { p.coyoteTimer -= dt; }
 
-    // ── Jump buffering ──────────────────────────────────────
-    if (this.input.jump) {
-      p.jumpBufferTimer = 0.1;
-    } else {
-      p.jumpBufferTimer -= dt;
-    }
+    // Jump buffering
+    if (this.input.jump) { p.jumpBufferTimer = 0.1; }
+    else { p.jumpBufferTimer -= dt; }
 
-    // ── Jump execution (coyote + buffer) ────────────────────
+    // Jump execution (coyote + buffer)
     const canJump = p.grounded || p.coyoteTimer > 0;
     if (p.jumpBufferTimer > 0 && canJump) {
       p.vy = JUMP_FORCE;
@@ -429,37 +455,34 @@ export class Game {
       this.audio.jump();
     }
 
-    // ── Variable jump height ────────────────────────────────
+    // Variable jump height
     if (this.input.jumpReleased && p.vy > 0) {
       p.vy *= 0.5;
     }
 
-    // ── Shoot ───────────────────────────────────────────────
+    // Shoot
     if (this.input.shoot && p.hasGraphQL && p.shootCooldown <= 0) {
       this.spawnProjectile();
       p.shootCooldown = 0.2;
     }
     if (p.shootCooldown > 0) p.shootCooldown -= dt;
 
-    // ── Gravity ─────────────────────────────────────────────
+    // Gravity
     p.vy += GRAVITY * dt;
     if (p.vy < MAX_FALL_SPEED) p.vy = MAX_FALL_SPEED;
 
-    // ── Wall slide detection ────────────────────────────────
+    // Wall slide detection
     p.wallSliding = false;
     p.wallDir = 0;
 
     if (!p.grounded && p.vy < 0) {
-      // Check if pressing into a solid (non-cloud) wall
       const pushDir = pushingLeft ? -1 : pushingRight ? 1 : 0;
       if (pushDir !== 0) {
         for (const pl of this.platforms) {
           if (pl.type === 'cloud') continue;
-          // Check horizontal adjacency
           const hDist = Math.abs(p.x - pl.x) - (p.width + pl.width) / 2;
           const vOverlap = (p.height + pl.height) / 2 - Math.abs(p.y - pl.y);
           if (hDist < 0.15 && hDist > -0.3 && vOverlap > 0.15) {
-            // Determine which side the wall is on relative to the player
             const wallSide = (pl.x > p.x) ? 1 : -1;
             if (pushDir === wallSide) {
               p.wallSliding = true;
@@ -471,24 +494,24 @@ export class Game {
       }
     }
 
-    // ── Apply wall slide speed cap ──────────────────────────
+    // Apply wall slide speed cap
     if (p.wallSliding && p.vy < WALL_SLIDE_MAX_FALL) {
       p.vy = WALL_SLIDE_MAX_FALL;
       this.audio.wallSlide();
     }
 
-    // ── Horizontal move + collision ──────────────────────────
+    // Horizontal move + collision
     p.x += p.vx * dt;
     for (const pl of this.platforms) {
-      if (pl.type === 'cloud') continue;         // clouds are one-way
-      if (this.overlapShrunkY(p, pl, 0.15)) {    // shrink Y to avoid edge false-positive
+      if (pl.type === 'cloud') continue;
+      if (this.overlapShrunkY(p, pl, 0.15)) {
         if (p.x > pl.x) p.x = pl.x + (pl.width + p.width) / 2;
         else             p.x = pl.x - (pl.width + p.width) / 2;
         p.vx = 0;
       }
     }
 
-    // ── Vertical move + collision ────────────────────────────
+    // Vertical move + collision
     const prevY = p.y;
     p.y += p.vy * dt;
     const wasGrounded = p.grounded;
@@ -496,9 +519,7 @@ export class Game {
 
     for (const pl of this.platforms) {
       if (!this.overlap(p, pl)) continue;
-
       if (pl.type === 'cloud') {
-        // One-way: only land from above
         if (p.vy <= 0 && prevY - p.height / 2 >= pl.y + pl.height / 2 - 0.25) {
           p.y = pl.y + (pl.height + p.height) / 2;
           p.vy = 0;
@@ -517,10 +538,8 @@ export class Game {
       }
     }
 
-    // ── Landing: reset combo timer, process jump buffer ─────
+    // Landing: reset combo
     if (p.grounded && !wasGrounded) {
-      // Reset combo on landing (unless combo timer still alive)
-      // Combo resets if you touch ground without killing anything recently
       if (p.comboCount > 0) {
         p.comboTimer = 0;
         p.comboCount = 0;
@@ -528,19 +547,16 @@ export class Game {
       }
     }
 
-    // ── Checkpoint tracking ─────────────────────────────────
+    // Checkpoint tracking
     for (const cpx of CHECKPOINT_POSITIONS) {
       if (p.x >= cpx && p.checkpoint.x < cpx) {
-        // Resolve y: find the ground platform at this x
         let cpY = 2;
         for (const pl of this.platforms) {
           const leftEdge = pl.x - pl.width / 2;
           const rightEdge = pl.x + pl.width / 2;
           if (cpx >= leftEdge && cpx <= rightEdge && pl.y + pl.height / 2 < cpY + 5) {
             const surfaceY = pl.y + pl.height / 2 + p.height / 2;
-            if (surfaceY > cpY - 3) {
-              cpY = surfaceY;
-            }
+            if (surfaceY > cpY - 3) cpY = surfaceY;
           }
         }
         p.checkpoint = { x: cpx, y: cpY };
@@ -549,7 +565,7 @@ export class Game {
       }
     }
 
-    // ── Combo timer decay ───────────────────────────────────
+    // Combo timer decay
     if (p.comboCount > 0) {
       p.comboTimer -= dt;
       if (p.comboTimer <= 0) {
@@ -562,14 +578,29 @@ export class Game {
     if (p.y < -5) { this.playerDie(); return; }
     if (p.x < 0) p.x = 0;
 
+    // Dust trail when running on ground
+    if (p.grounded && Math.abs(p.vx) > 1) {
+      this._dustTimer += dt;
+      if (this._dustTimer > 0.08) {
+        this._dustTimer = 0;
+        this._spawnDustParticle(p.x - p.facing * 0.3, p.y);
+      }
+    } else {
+      this._dustTimer = 0;
+    }
+
     // Update mesh
     p.mesh.position.set(p.x, p.y, 0);
     p.mesh.scale.x = p.facing;
 
-    // Run bob + dust
+    // Run bob
     if (p.grounded && Math.abs(p.vx) > 1) {
       p.mesh.position.y += Math.sin(Date.now() * 0.015) * 0.06;
-      this._spawnDustTrail();
+    }
+
+    // Hit flash
+    if (p.hitFlashTimer > 0) {
+      p.hitFlashTimer = this._applyHitFlash(p.mesh, p.hitFlashTimer, dt);
     }
 
     // Invincibility blink
@@ -588,9 +619,16 @@ export class Game {
       e.time += dt;
       switch (e.type) {
         case 'bug':
+          e.x += e.dir * e.speed * dt;
+          if (e.x < e.minX || e.x > e.maxX) e.dir *= -1;
+          // Subtle bob animation for bugs
+          e.mesh.position.y = e.y + Math.sin(e.time * 6) * 0.04;
+          break;
         case 'monolith':
           e.x += e.dir * e.speed * dt;
           if (e.x < e.minX || e.x > e.maxX) e.dir *= -1;
+          // Slow menacing bob for monoliths
+          e.mesh.position.y = e.y + Math.sin(e.time * 2) * 0.06;
           break;
         case 'drama':
           e.x += e.dir * e.speed * dt;
@@ -599,8 +637,18 @@ export class Game {
           break;
       }
 
-      e.mesh.position.set(e.x, e.y, 0);
+      // Update position
+      if (e.type === 'drama') {
+        e.mesh.position.set(e.x, e.y, 0);
+      } else {
+        e.mesh.position.x = e.x;
+      }
       e.mesh.scale.x = e.dir;
+
+      // Hit flash
+      if (e.hitFlashTimer > 0) {
+        e.hitFlashTimer = this._applyHitFlash(e.mesh, e.hitFlashTimer, dt);
+      }
 
       // Collision with player
       if (this.overlap(p, e)) {
@@ -661,8 +709,9 @@ export class Game {
         } else {
           b.y = BOSS_CONFIG.y;
           this.audio.bossSlam();
-          this.screenShake(0.5, 0.35);
           this.spawnParticles(b.x, b.y, 10, COLORS.bossRed);
+          // Big screen shake on boss slam
+          this.screenShake(0.35, 0.4);
           if (p.grounded && Math.abs(p.x - b.x) < 5 && !p.invincible) {
             this.playerHit(b);
           }
@@ -675,6 +724,11 @@ export class Game {
     b.mesh.position.set(b.x, b.y, 0);
     b.mesh.scale.x = b.dir > 0 ? -1 : 1;
     b.mesh.visible = b.invulnTimer > 0 ? Math.floor(Date.now() / 60) % 2 === 0 : true;
+
+    // Hit flash for boss
+    if (b.hitFlashTimer > 0) {
+      b.hitFlashTimer = this._applyHitFlash(b.mesh, b.hitFlashTimer, dt);
+    }
 
     // Boss collision
     if (this.overlap(p, b) && b.invulnTimer <= 0) {
@@ -691,31 +745,35 @@ export class Game {
     const b = this.boss;
     b.hp--;
     b.invulnTimer = 0.5;
+    b.hitFlashTimer = 0.2;
     this.audio.hit();
     this.spawnParticles(b.x, b.y + b.height / 2, 6, COLORS.bossRed);
     this.player.score += 50;
+    this.spawnFloatingText(b.x, b.y + b.height / 2, '+50', 0xFF5252);
+    // Medium shake when boss is hit
+    this.screenShake(0.15, 0.2);
 
     if (b.hp <= 0) {
       b.alive = false;
       b.mesh.visible = false;
       this.audio.bossDeath();
-      this.screenShake(0.8, 0.6);
-      this.spawnFloatingText(b.x, b.y, '+2000', COLORS.gold);
-      // Victory fireworks
-      const fwColors = [COLORS.gold, COLORS.drupalBlue, COLORS.powerPink, COLORS.powerGreen, COLORS.shieldBlue];
-      for (let burst = 0; burst < 5; burst++) {
-        setTimeout(() => {
-          const bx = b.x + (Math.random() - 0.5) * 8;
-          const by = b.y + Math.random() * 4;
-          this.spawnParticles(bx, by, 12, fwColors[burst % fwColors.length]);
-        }, burst * 200);
-      }
       this.spawnParticles(b.x, b.y, 25, COLORS.gold);
+      this._spawnDeathExplosion(b.x, b.y, COLORS.bossRed);
       this.player.score += 2000;
+      this.spawnFloatingText(b.x, b.y, '+2000', 0xFFD700);
+      // Huge screen shake on boss death
+      this.screenShake(0.5, 0.8);
+      // Remove boss health bar
+      const bar = document.getElementById('boss-health-bar');
+      if (bar) bar.remove();
+      const label = document.getElementById('boss-health-label');
+      if (label) label.remove();
       const portal = createPortalSprite();
       portal.position.set(b.x, 2, 0);
       this.scene.add(portal);
       this.portal = portal;
+      // Victory fireworks
+      this._startFireworks(b.x, b.y);
     }
     b.speed = BOSS_CONFIG.speed * (1 + (1 - b.hp / b.maxHp) * 0.8);
   }
@@ -779,14 +837,15 @@ export class Game {
       if (c.collected) continue;
       c.time += dt;
       c.mesh.position.y = c.y + Math.sin(c.time * 3) * 0.15;
-      c.mesh.rotation.y = c.time * 2;
+      // Smoother coin spin using cosine for squash/stretch
+      c.mesh.scale.x = Math.cos(c.time * 3);
       if (this.overlap(p, c)) {
         c.collected = true;
         c.mesh.visible = false;
         p.score += 50;
         this.audio.coin();
         this.spawnParticles(c.x, c.y, 3, COLORS.gold);
-        this.spawnFloatingText(c.x, c.y, '+50', COLORS.gold);
+        this.spawnFloatingText(c.x, c.y, '+50', 0xFFD700);
       }
     }
 
@@ -794,6 +853,9 @@ export class Game {
       if (pw.collected) continue;
       pw.time += dt;
       pw.mesh.position.y = pw.y + Math.sin(pw.time * 2) * 0.2;
+      // Gentle pulsing scale for powerups
+      const pulse = 1 + Math.sin(pw.time * 4) * 0.05;
+      pw.mesh.scale.set(pulse, pulse, 1);
       if (this.overlap(p, pw)) {
         pw.collected = true;
         pw.mesh.visible = false;
@@ -806,6 +868,9 @@ export class Game {
     // Portal
     if (this.portal) {
       this.portal.rotation.y += dt * 2;
+      // Subtle pulsing for the portal
+      const portalPulse = 1 + Math.sin(Date.now() * 0.005) * 0.08;
+      this.portal.scale.set(portalPulse, portalPulse, 1);
       const pp = this.portal.position;
       if (Math.abs(p.x - pp.x) < 1.5 && Math.abs(p.y - pp.y) < 2) {
         this.triggerVictory();
@@ -843,6 +908,24 @@ export class Game {
   updateParticles(dt) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const pt = this.particles[i];
+
+      // Expanding ring effect
+      if (pt.isRing) {
+        pt.life -= dt;
+        const progress = 1 - (pt.life / pt.maxLife);
+        const scale = 1 + progress * 6;
+        pt.mesh.scale.set(scale, scale, 1);
+        pt.mesh.material.opacity = Math.max(0, 1 - progress);
+        pt.mesh.position.set(pt.x, pt.y, 0.3);
+        if (pt.life <= 0) {
+          this.scene.remove(pt.mesh);
+          pt.mesh.material.dispose();
+          pt.mesh.geometry.dispose();
+          this.particles.splice(i, 1);
+        }
+        continue;
+      }
+
       pt.x += pt.vx * dt;
       pt.y += pt.vy * dt;
       pt.vy -= 15 * dt;
@@ -886,6 +969,11 @@ export class Game {
     // Parallax
     for (const l of this.bgLayers) {
       l.mesh.position.x = l.ix + this.camera.position.x * l.speed;
+
+      // Animate cloud drift
+      if (l.type === 'cloud' && l.driftSpeed) {
+        l.mesh.position.y += Math.sin(Date.now() * 0.001 * l.driftSpeed + l.driftOffset) * 0.001;
+      }
     }
   }
 
@@ -930,7 +1018,7 @@ export class Game {
   _incrementCombo(baseScore) {
     const p = this.player;
     p.comboCount++;
-    p.comboTimer = 3; // 3 seconds to keep combo alive
+    p.comboTimer = 3;
 
     if (p.comboCount >= 2) {
       const multiplier = p.comboCount;
@@ -947,7 +1035,6 @@ export class Game {
     this.comboEl.style.display = 'block';
     this.comboEl.style.opacity = '1';
     this.comboEl.style.transform = 'translate(-50%, -50%) scale(1.3)';
-    // Animate down
     requestAnimationFrame(() => {
       this.comboEl.style.transition = 'transform 0.2s ease-out, opacity 0.8s ease-out 1.5s';
       this.comboEl.style.transform = 'translate(-50%, -50%) scale(1)';
@@ -968,15 +1055,17 @@ export class Game {
   //  SCREEN SHAKE
   // ════════════════════════════════════════════════════════════
   screenShake(intensity, duration) {
-    this._shakeIntensity = Math.max(this._shakeIntensity, intensity);
-    this._shakeDuration = Math.max(this._shakeDuration, duration);
-    this._shakeTimer = this._shakeDuration;
+    if (intensity > this._shakeIntensity * (this._shakeTimer / (this._shakeDuration || 1))) {
+      this._shakeIntensity = intensity;
+      this._shakeDuration = duration;
+      this._shakeTimer = duration;
+    }
   }
 
   _applyScreenShake(dt) {
     if (this._shakeTimer > 0) {
       this._shakeTimer -= dt;
-      const t = this._shakeTimer / this._shakeDuration;
+      const t = Math.max(0, this._shakeTimer / this._shakeDuration);
       const mag = this._shakeIntensity * t;
       this.camera.position.x += (Math.random() - 0.5) * mag;
       this.camera.position.y += (Math.random() - 0.5) * mag;
@@ -991,36 +1080,50 @@ export class Game {
   //  FLOATING SCORE TEXT
   // ════════════════════════════════════════════════════════════
   spawnFloatingText(x, y, text, color = 0xFFD700) {
+    const cw = Math.max(64, text.length * 8);
+    const ch = 16;
     const canvas = document.createElement('canvas');
-    canvas.width = 64; canvas.height = 16;
+    canvas.width = cw;
+    canvas.height = ch;
     const ctx = canvas.getContext('2d');
+    const hexColor = '#' + color.toString(16).padStart(6, '0');
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#000';
-    ctx.fillText(text, 33, 13);
-    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
-    ctx.fillText(text, 32, 12);
+    // Text outline for readability
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    ctx.strokeText(text, cw / 2, ch / 2 + 4);
+    ctx.fillStyle = hexColor;
+    ctx.fillText(text, cw / 2, ch / 2 + 4);
     const tex = new THREE.CanvasTexture(canvas);
     tex.magFilter = THREE.NearestFilter;
     tex.minFilter = THREE.NearestFilter;
     const mesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.6, 0.4),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+      new THREE.PlaneGeometry(cw / 32, ch / 32),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false })
     );
-    mesh.position.set(x, y + 0.5, 0.3);
+    mesh.position.set(x, y + 0.5, 0.5);
+    mesh.renderOrder = 999;
     this.scene.add(mesh);
-    this._floatingTexts.push({ mesh, vy: 3, life: 1.0 });
+    this._floatingTexts.push({ mesh, x, y: y + 0.5, vy: 3, life: 1.0, maxLife: 1.0 });
   }
 
   _updateFloatingTexts(dt) {
     for (let i = this._floatingTexts.length - 1; i >= 0; i--) {
       const ft = this._floatingTexts[i];
       ft.life -= dt;
-      ft.mesh.position.y += ft.vy * dt;
-      ft.vy *= 0.97;
-      ft.mesh.material.opacity = Math.max(0, ft.life);
+      ft.y += ft.vy * dt;
+      ft.vy *= 0.96;
+      ft.mesh.position.set(ft.x, ft.y, 0.5);
+      const alpha = Math.max(0, ft.life / ft.maxLife);
+      ft.mesh.material.opacity = alpha;
+      // Scale up slightly as it fades
+      const scale = 1 + (1 - alpha) * 0.3;
+      ft.mesh.scale.set(scale, scale, 1);
       if (ft.life <= 0) {
         this.scene.remove(ft.mesh);
+        ft.mesh.material.dispose();
+        ft.mesh.geometry.dispose();
         this._floatingTexts.splice(i, 1);
       }
     }
@@ -1057,12 +1160,197 @@ export class Game {
         this.container.appendChild(bar);
       }
       const fill = document.getElementById('boss-hp-fill');
-      if (fill) fill.style.width = `${(b.hp / b.maxHp) * 100}%`;
+      if (fill) {
+        const pct = Math.max(0, (b.hp / b.maxHp) * 100);
+        fill.style.width = `${pct}%`;
+        // Color changes as HP drops
+        if (pct > 60) fill.style.background = '#D32F2F';
+        else if (pct > 30) fill.style.background = '#FF6F00';
+        else fill.style.background = '#FF1744';
+      }
     } else if (bar) {
       bar.remove();
       const label = document.getElementById('boss-health-label');
       if (label) label.remove();
     }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  HIT FLASH HELPER
+  // ════════════════════════════════════════════════════════════
+  _applyHitFlash(mesh, timer, dt) {
+    if (timer > 0) {
+      const flashOn = Math.floor(timer * 20) % 2 === 0;
+      mesh.traverse((child) => {
+        if (child.isMesh && child.material) {
+          if (flashOn) {
+            if (!child.userData._origColor) {
+              child.userData._origColor = child.material.color.getHex();
+            }
+            child.material.color.setHex(0xffffff);
+          } else {
+            if (child.userData._origColor !== undefined) {
+              child.material.color.setHex(child.userData._origColor);
+            }
+          }
+        }
+      });
+      return timer - dt;
+    }
+    // Restore original colors
+    mesh.traverse((child) => {
+      if (child.isMesh && child.material && child.userData._origColor !== undefined) {
+        child.material.color.setHex(child.userData._origColor);
+        delete child.userData._origColor;
+      }
+    });
+    return 0;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  DUST TRAIL PARTICLES
+  // ════════════════════════════════════════════════════════════
+  _spawnDustParticle(x, y) {
+    const mesh = createParticleMesh(0x8B7355);
+    mesh.position.set(x, y - 0.8, 0.05);
+    mesh.scale.set(0.5, 0.5, 1);
+    this.scene.add(mesh);
+    const ml = 0.3 + Math.random() * 0.2;
+    this.particles.push({
+      x: x + (Math.random() - 0.5) * 0.3,
+      y: y - 0.8,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: 1 + Math.random() * 1.5,
+      life: ml,
+      maxLife: ml,
+      mesh,
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  DEATH EXPLOSION RING
+  // ════════════════════════════════════════════════════════════
+  _spawnDeathExplosion(x, y, color) {
+    const ringTex = this._createRingTexture(color);
+    const ringMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.5),
+      new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthTest: false })
+    );
+    ringMesh.position.set(x, y, 0.3);
+    ringMesh.renderOrder = 100;
+    this.scene.add(ringMesh);
+
+    this.particles.push({
+      x, y,
+      vx: 0, vy: 0,
+      life: 0.5,
+      maxLife: 0.5,
+      mesh: ringMesh,
+      isRing: true,
+    });
+  }
+
+  _createRingTexture(color) {
+    const c = document.createElement('canvas');
+    c.width = 32; c.height = 32;
+    const ctx = c.getContext('2d');
+    const hexColor = typeof color === 'number'
+      ? '#' + color.toString(16).padStart(6, '0')
+      : color;
+    ctx.strokeStyle = hexColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(16, 16, 12, 0, Math.PI * 2);
+    ctx.stroke();
+    const grd = ctx.createRadialGradient(16, 16, 6, 16, 16, 14);
+    grd.addColorStop(0, 'rgba(255,255,255,0.3)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grd;
+    ctx.fill();
+    const t = new THREE.CanvasTexture(c);
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    return t;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  BOSS DEBRIS ANIMATION
+  // ════════════════════════════════════════════════════════════
+  _updateBossDebris(dt) {
+    const b = this.boss;
+    if (!b || !b.alive) return;
+    b.debrisTime += dt;
+    b.mesh.traverse((child) => {
+      if (child.userData.debrisIndex !== undefined) {
+        const idx = child.userData.debrisIndex;
+        const baseAngle = child.userData.debrisAngle;
+        const radius = child.userData.debrisRadius;
+        const angle = baseAngle + b.debrisTime * (0.8 + idx * 0.15);
+        const bobY = Math.sin(b.debrisTime * 2 + idx) * 0.3;
+        child.position.set(
+          Math.cos(angle) * radius,
+          Math.sin(angle) * radius * 1.2 + bobY,
+          0.1
+        );
+        child.rotation.z = b.debrisTime * 2;
+        const hpRatio = b.hp / b.maxHp;
+        child.material.opacity = 0.3 + (1 - hpRatio) * 0.5;
+      }
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  VICTORY FIREWORKS
+  // ════════════════════════════════════════════════════════════
+  _startFireworks(x, y) {
+    this._fireworksActive = true;
+    this._fireworksTimer = 0;
+    this._fireworksCenterX = x;
+    this._fireworksCenterY = y;
+    this._fireworksBurstCount = 0;
+  }
+
+  _updateFireworks(dt) {
+    this._fireworksTimer += dt;
+    const burstInterval = 0.4;
+    const totalBursts = 12;
+    const expectedBursts = Math.floor(this._fireworksTimer / burstInterval);
+    while (this._fireworksBurstCount < expectedBursts && this._fireworksBurstCount < totalBursts) {
+      this._fireworksBurstCount++;
+      const fx = this._fireworksCenterX + (Math.random() - 0.5) * 10;
+      const fy = this._fireworksCenterY + 2 + Math.random() * 6;
+      const fireworkColors = [
+        COLORS.gold, COLORS.drupalBlue, COLORS.powerPink,
+        COLORS.powerGreen, COLORS.shieldBlue, 0xFF6F00,
+        0x9C27B0, 0x00BCD4,
+      ];
+      const color = fireworkColors[this._fireworksBurstCount % fireworkColors.length];
+      this._spawnFireworkBurst(fx, fy, color);
+    }
+    if (this._fireworksTimer > totalBursts * burstInterval + 1) {
+      this._fireworksActive = false;
+    }
+  }
+
+  _spawnFireworkBurst(x, y, color) {
+    const count = 16 + Math.floor(Math.random() * 8);
+    for (let i = 0; i < count; i++) {
+      const mesh = createParticleMesh(color);
+      mesh.position.set(x, y, 0.3);
+      this.scene.add(mesh);
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = 4 + Math.random() * 6;
+      const ml = 0.6 + Math.random() * 0.6;
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: ml,
+        maxLife: ml,
+        mesh,
+      });
+    }
+    this.screenShake(0.08, 0.15);
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1076,28 +1364,31 @@ export class Game {
       p.hasOAuth = false;
       p.invincible = true;
       p.invincibleTimer = 1;
+      p.hitFlashTimer = 0.15;
       this.audio.hit();
       this.showMsg('Shield absorbed hit!', 1.2);
+      this.screenShake(0.1, 0.15);
       return;
     }
 
     p.hp--;
     p.invincible = true;
     p.invincibleTimer = 1.5;
+    p.hitFlashTimer = 0.2;
 
-    // Directional knockback: away from the damage source
+    // Directional knockback
     if (source) {
       const knockDir = (p.x >= source.x) ? 1 : -1;
       p.vx = knockDir * MOVE_SPEED * 1.2;
       p.vy = JUMP_FORCE * 0.5;
-      // Horizontal knockback decays next frame via normal input
     } else {
       p.vy = JUMP_FORCE * 0.5;
     }
 
     this.audio.hit();
     this.spawnParticles(p.x, p.y, 5, COLORS.heartRed);
-    this.screenShake(0.3, 0.2);
+    // Medium screen shake when player takes hit
+    this.screenShake(0.25, 0.3);
 
     // Reset combo on getting hit
     p.comboCount = 0;
@@ -1112,7 +1403,6 @@ export class Game {
 
     // Check if we have a checkpoint to respawn at
     if (p.checkpoint.x > 3) {
-      // Respawn at checkpoint instead of full game over
       p.hp = p.maxHp;
       p.x = p.checkpoint.x;
       p.y = p.checkpoint.y;
@@ -1128,7 +1418,6 @@ export class Game {
       this.camera.position.set(p.x, 4, 5);
       this.audio.hit();
       this.showMsg('Checkpoint!', 1.5);
-      // Deduct some score as a penalty
       p.score = Math.max(0, p.score - 200);
       return;
     }
@@ -1138,9 +1427,15 @@ export class Game {
     this._currentMusicTheme = null;
     this.audio.gameOver();
     this.spawnParticles(p.x, p.y, 15, COLORS.drupalBlue);
+    this._spawnDeathExplosion(p.x, p.y, COLORS.drupalBlue);
     p.mesh.visible = false;
 
-    // Fade in over 0.3s
+    // Remove boss health bar
+    const bar = document.getElementById('boss-health-bar');
+    if (bar) bar.remove();
+    const label = document.getElementById('boss-health-label');
+    if (label) label.remove();
+
     this._fadeIn(0.3);
 
     this.overlay.innerHTML = `
@@ -1158,7 +1453,6 @@ export class Game {
     this.audio.startMusic('victory');
     this._currentMusicTheme = 'victory';
 
-    // Fade in with slight delay (0.3s delay, 0.3s duration)
     this._fadeIn(0.3, 0.3);
 
     this.overlay.innerHTML = `
@@ -1183,6 +1477,7 @@ export class Game {
   // ════════════════════════════════════════════════════════════
   hurtEnemy(e, dmg) {
     e.hp -= dmg;
+    e.hitFlashTimer = 0.15;
     this.audio.enemyDeath();
     this.spawnParticles(e.x, e.y, 5, COLORS.enemyRed);
     if (e.hp <= 0) {
@@ -1191,47 +1486,12 @@ export class Game {
       this.player.score += e.score;
       this._incrementCombo(e.score);
       this.showMsg(`Defeated: ${e.name}!`, 1.5);
-      this.screenShake(0.15, 0.15);
-      this.spawnFloatingText(e.x, e.y, `+${e.score}`, COLORS.gold);
+      this.spawnFloatingText(e.x, e.y, `+${e.score}`, 0xFF5252);
+      // Death explosion ring
+      this._spawnDeathExplosion(e.x, e.y, COLORS.enemyRed);
+      // Small screen shake when enemy dies
+      this.screenShake(0.1, 0.15);
     }
-  }
-
-  // ════════════════════════════════════════════════════════════
-  //  BOSS DEBRIS ANIMATION
-  // ════════════════════════════════════════════════════════════
-  _updateBossDebris(dt) {
-    const b = this.boss;
-    if (!b || !b.alive) return;
-    // Animate floating debris meshes in the boss sprite group
-    b.mesh.children.forEach(child => {
-      if (child.userData.debrisIndex !== undefined) {
-        const d = child.userData;
-        d.debrisAngle += dt * (0.8 + d.debrisIndex * 0.15);
-        child.position.x = Math.cos(d.debrisAngle) * d.debrisRadius;
-        child.position.y = Math.sin(d.debrisAngle) * d.debrisRadius;
-        child.rotation.z += dt * 2;
-      }
-    });
-  }
-
-  // ════════════════════════════════════════════════════════════
-  //  DUST TRAIL (running on ground)
-  // ════════════════════════════════════════════════════════════
-  _spawnDustTrail() {
-    const p = this.player;
-    if (!p.grounded || Math.abs(p.vx) < 2) return;
-    if (Math.random() > 0.3) return; // throttle
-    const mesh = createParticleMesh(0x999999);
-    const x = p.x - p.facing * 0.4;
-    const y = p.y - p.height / 2 + 0.1;
-    mesh.position.set(x, y, 0.15);
-    this.scene.add(mesh);
-    this.particles.push({
-      x, y,
-      vx: -p.facing * (1 + Math.random()),
-      vy: 0.5 + Math.random() * 0.5,
-      life: 0.3, maxLife: 0.3, mesh,
-    });
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1274,11 +1534,9 @@ export class Game {
 
     let w, h;
     if (winAspect > this.gameAspect) {
-      // Window wider than 16:9 -> pillarbox (black bars on sides)
       h = winH;
       w = Math.floor(h * this.gameAspect);
     } else {
-      // Window taller than 16:9 -> letterbox (black bars top/bottom)
       w = winW;
       h = Math.floor(w / this.gameAspect);
     }
@@ -1289,6 +1547,5 @@ export class Game {
     this.container.style.top    = Math.floor((winH - h) / 2) + 'px';
 
     this.renderer.setSize(w, h);
-    // Camera stays fixed -- aspect never changes
   }
 }
