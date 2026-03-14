@@ -213,11 +213,11 @@ export class Game {
       x: 3, y: 2, vx: 0, vy: 0,
       width: PLAYER_WIDTH, height: PLAYER_HEIGHT,
       grounded: false,
-      hp: 3, maxHp: 3, score: 0, facing: 1,
+      hp: 5, maxHp: 5, score: 0, facing: 1,
       hasGraphQL: false, graphQLTimer: 0,
       hasOAuth: false,
       speedBoost: false, speedTimer: 0,
-      invincible: false, invincibleTimer: 0,
+      invincible: true, invincibleTimer: 2,
       shootCooldown: 0,
       mesh: pm,
       hitFlashTimer: 0,
@@ -644,6 +644,11 @@ export class Game {
         e.mesh.position.x = e.x;
       }
       e.mesh.scale.x = e.dir;
+
+      // Counter-flip label so text stays readable when enemy faces left
+      for (const child of e.mesh.children) {
+        if (child.position.y > 0) child.scale.x = e.dir;
+      }
 
       // Hit flash
       if (e.hitFlashTimer > 0) {

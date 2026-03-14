@@ -41,7 +41,7 @@ export const COLORS = {
 // Platforms: [x, y, width, height, type]
 export const PLATFORMS = [
   // === Section 1: Welcome — "Getting Started" (x: 0–55) ===
-  [-2, -2.5, 58, 5, 'grass'],         // main ground
+  [13, -2.5, 88, 5, 'grass'],         // main ground (extends from x=-31 to x=57)
   [8,   2.5, 3, 0.5, 'grass'],        // low stepping stone – teaches jumping
   [12,  3,   4, 0.5, 'grass'],        // (original)
   [17,  4.5, 3, 0.5, 'grass'],        // staircase up to first API block
@@ -111,9 +111,9 @@ export const PLATFORMS = [
 // Enemies: [x, y, type, patrolRange]
 // y = ground_top + half_height  (bugs=0.45, monoliths=1.5, drama=floating)
 export const ENEMIES = [
-  // Section 1 — gentle intro (ground: x -31..27)
-  [20,  0.45, 'bug',      6],         // (original) first enemy
-  [10,  0.45, 'bug',      4],         // new – guards early mid-section
+  // Section 1 — gentle intro (ground: x -31..57)
+  [25,  0.45, 'bug',      5],         // first enemy — far enough for player to learn controls
+  [42,  0.45, 'bug',      4],         // second S1 enemy — guards late S1
 
   // Section 2 — API Jungle (ground islands)
   [56,  0.45, 'bug',      5],         // (original) on S1 ground edge
@@ -146,6 +146,7 @@ export const ENEMIES = [
 
 // Powerups: [x, y, type]
 export const POWERUPS = [
+  [12,  3.5,  'heart'],               // S1: early heart for forgiving intro
   [20,  6.5,  'graphql'],             // S1: first weapon pickup
   [80,  10,   'ai'],                  // S2: AI star on secret cloud
   [104, 6,    'graphql'],             // S2: weapon before drama cloud cluster
